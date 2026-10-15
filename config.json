@@ -1,0 +1,14 @@
+{
+  "cota_desbordamiento_m": 5.8,
+  "umbral_precaucion_m": 4.6,
+  "umbral_critico_m": 5.2,
+  "histeresis_m": 0.15,
+  "api_key": "sat-monteria-demo",
+  "prefijo_simulacion": true,
+  "telegram_token": "8912985892:AAFkOJMLeFEgdayC2jZuQFzd_3C_BrO0g9w",
+  "telegram_chat_id": "-5036110827",
+  "supabase_url": "https://njzmakhfdsrmxmmazlqh.supabase.co/rest/v1/",
+  "supabase_key": "sb_publishable_YI_-kfHKZdpTLPS34VGxjQ_UdibAGi2",
+  "archivo_historico": "historico_lecturas.csv",
+  "archivo_notificaciones": "notificaciones.csv"
+}
