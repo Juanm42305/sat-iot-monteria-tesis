@@ -1,33 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-============================================================
- SENSOR SIMULADO - SAT-IoT MONTERÍA
- Simula el nodo sensor (ESP32 + sensor ultrasónico) de la margen izquierda.
-============================================================
-Se comunica con el servidor SOLO por la API, como lo haría el nodo real:
-    POST /api/lectura    {"sector": "sector1", "nivel_m": 4.72, "bateria_pct": 97}
-    Encabezado:          X-API-Key: <clave>
-
-Escenarios:
-    creciente   El río sube hasta casi la cota y baja (por defecto, 120 s). Pasa por
-                PRECAUCIÓN y por ALERTA CRÍTICA.
-    rapida      Creciente brusca de 45 s que supera la cota de desbordamiento.
-    estable     Nivel normal con pequeñas variaciones (no genera alertas).
-    replay      Reproduce un CSV con datos reales (columna nivel_m, nivel o valor).
-
-Uso (Windows):
-    py sensor_simulado.py                              creciente de 2 minutos
-    py sensor_simulado.py --escenario rapida
-    py sensor_simulado.py --repetir                    repite la creciente sin parar
-    py sensor_simulado.py --manual                     tú escribes el nivel (como el deslizador de Wokwi)
-    py sensor_simulado.py --perdida 0.3                pierde el 30 % de los envíos (falla de conectividad)
-    py sensor_simulado.py --escenario replay --archivo datos_ideam.csv
-
-No necesita instalar nada: solo Python 3.8 o superior.
-============================================================
-"""
-
 import argparse
 import csv
 import json
@@ -35,19 +5,44 @@ import math
 import random
 import sys
 import time
-import urllib.error
-import urllib.request
+import requests
+import datetime
 
 
 def enviar(url, clave, carga, timeout=5):
-    req = urllib.request.Request(
-        url.rstrip("/") + "/api/lectura",
-        data=json.dumps(carga).encode("utf-8"),
-        headers={"Content-Type": "application/json", "X-API-Key": clave},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8"))
+    nivel = carga["nivel_m"]
+    cota = 5.8
+    pct = round((nivel / cota) * 100, 1)
+    estado = "CRITICA" if nivel >= 5.2 else ("PRECAUCION" if nivel >= 4.6 else "NORMAL")
+    
+    # Obtenemos la hora local actual en formato string para la base de datos
+    ahora_local = datetime.datetime.now().isoformat()
+
+    payload_supabase = {
+        "sector": carga["sector"],
+        "nivel_m": nivel,
+        "bateria_pct": carga.get("bateria_pct", 100.0),
+        "porcentaje_cota": pct,
+        "estado": estado,
+        "tendencia": "Estable",
+        "timestamp_local": ahora_local  # <--- Agregamos este campo obligatorio
+    }
+
+    endpoint = url.rstrip("/") + "/lecturas"
+    headers = {
+        "Content-Type": "application/json",
+        "apikey": clave,
+        "Authorization": f"Bearer {clave}",
+        "Prefer": "return=representation"
+    }
+
+    response = requests.post(endpoint, json=payload_supabase, headers=headers, timeout=timeout)
+    
+    if response.status_code in (200, 201):
+        resp_data = response.json()
+        return resp_data[0] if isinstance(resp_data, list) and len(resp_data) > 0 else {"estado": estado, "tendencia": "Estable"}
+    else:
+        raise Exception(f"HTTP {response.status_code}: {response.text}")
 
 
 # ---------- PERFILES DE NIVEL (en metros) ----------
@@ -102,20 +97,11 @@ def intentar_envio(args, nivel, bateria):
     carga = {"sector": args.sector, "nivel_m": round(nivel, 2), "bateria_pct": round(bateria, 1)}
     try:
         r = enviar(args.url, args.clave, carga)
-        print(f"  enviado {carga['nivel_m']:.2f} m  ->  {r['estado']} ({r['tendencia']})")
+        print(f"  enviado {carga['nivel_m']:.2f} m  ->  {r.get('estado', 'OK')} ({r.get('tendencia', 'Estable')})")
         return True
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            raise SystemExit("[ERROR] El servidor rechazó la API key. Usa --clave con la misma "
-                             "que está en config.json (api_key).")
-        try:
-            motivo = json.loads(e.read().decode("utf-8")).get("error", "")
-        except Exception:
-            motivo = ""
-        print(f"  [RECHAZADO] HTTP {e.code} {motivo}")
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        print("  [SIN CONEXIÓN] No se pudo contactar al servidor. ¿Está corriendo sat_servidor.py? Reintentando...")
-    return False
+    except Exception as e:
+        print(f"  [ERROR DE ENVÍO]: {e}")
+        return False
 
 
 def modo_manual(args):
@@ -143,9 +129,10 @@ def main():
         sys.stdout.reconfigure(errors="replace")
     except AttributeError:
         pass
-    ap = argparse.ArgumentParser(description="Sensor simulado del SAT-IoT Montería")
-    ap.add_argument("--url", default="http://127.0.0.1:8000", help="dirección del servidor")
-    ap.add_argument("--clave", default="sat-monteria-demo", help="API key (igual a la de config.json)")
+
+    ap = argparse.ArgumentParser(description="Sensor simulado del SAT-IoT Montería (Supabase Cloud)")
+    ap.add_argument("--url", default="https://njzmakhfdsrmxmmazlqh.supabase.co/rest/v1", help="dirección del servidor Supabase")
+    ap.add_argument("--clave", default="sb_publishable_YI_-kfHKZdpTLPS34VGxjQ_UdibAGi2", help="API key")
     ap.add_argument("--sector", default="sector1", help="nombre del sector que mide este nodo")
     ap.add_argument("--escenario", choices=["creciente", "rapida", "estable", "replay"], default="creciente")
     ap.add_argument("--duracion", type=float, default=120, help="duración de la creciente en segundos")
@@ -156,7 +143,7 @@ def main():
     ap.add_argument("--manual", action="store_true", help="tú escribes el nivel a mano")
     args = ap.parse_args()
 
-    print("=== SENSOR SIMULADO - SAT-IoT Montería ===")
+    print("=== SENSOR SIMULADO - SAT-IoT Montería (Cloud) ===")
     print(f"Servidor: {args.url} · sector: {args.sector}")
     if args.manual:
         return modo_manual(args)
