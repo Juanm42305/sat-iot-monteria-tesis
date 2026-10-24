@@ -233,14 +233,12 @@ export default function App() {
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.5rem', color: '#fff' }} 
                   />
-                  {/* Línea de Umbral de Precaución (Amarilla) */}
                   <ReferenceLine 
                     y={3.5} 
                     stroke="#f59e0b" 
                     strokeDasharray="4 4" 
                     label={{ value: 'Umbral Precaución (3.5m)', fill: '#f59e0b', fontSize: 11, position: 'insideTopRight' }} 
                   />
-                  {/* Línea de Umbral Crítico (Roja) */}
                   <ReferenceLine 
                     y={5.0} 
                     stroke="#ef4444" 
@@ -270,28 +268,16 @@ export default function App() {
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Realtime Activo
             </span>
           </div>
-          <div className="overflow-x-auto">
+          <div className="max-h-[380px] overflow-y-auto custom-scrollbar overflow-x-auto">
             <table className="w-full text-left border-collapse">
-              <thead>
-                <tr>
-  {/* 1. SECTOR */}
-  <td className="px-4 py-3">{item.sector}</td>
-  
-  {/* 2. NIVEL (M) */}
-  <td className="px-4 py-3 text-amber-400 font-semibold">{item.nivel} m</td>
-  
-  {/* 3. % COTA */}
-  <td className="px-4 py-3">{item.cota}%</td>
-  
-  {/* 4. BATERÍA */}
-  <td className="px-4 py-3">{item.bateria}%</td> 
-  
-  {/* 5. ESTADO */}
-  <td className="px-4 py-3 font-bold text-cyan-400">{item.estado}</td>
-  
-  {/* 6. FECHA / HORA */}
-  <td className="px-4 py-3 text-slate-400">{item.fecha}</td>
-</tr>
+              <thead className="sticky top-0 bg-slate-900 z-10">
+                <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider">
+                  <th className="py-3 px-3">Hora Local</th>
+                  <th className="py-3 px-3">Estado</th>
+                  <th className="py-3 px-3">Canal</th>
+                  <th className="py-3 px-3">Resultado</th>
+                  <th className="py-3 px-3">Mensaje Transmitido</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-sm">
                 {loading && notificaciones.length === 0 ? (
@@ -336,9 +322,9 @@ export default function App() {
               Sincronizado Supabase
             </span>
           </div>
-          <div className="overflow-x-auto">
+          <div className="max-h-[380px] overflow-y-auto custom-scrollbar overflow-x-auto">
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 bg-slate-900 z-10">
                 <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider">
                   <th className="py-3 px-3">Sector</th>
                   <th className="py-3 px-3">Nivel (m)</th>
@@ -360,7 +346,7 @@ export default function App() {
                     <tr key={item.id || index} className="hover:bg-slate-800/40 transition">
                       <td className="py-3 px-3 text-slate-300">{item.sector || 'Margen Izquierda'}</td>
                       <td className="py-3 px-3 font-bold text-amber-400 font-mono">{item.nivel_m} m</td>
-                      <td className="py-3 px-3 text-slate-300 font-mono">{item.porcentaje_cota}%</td> sustentación
+                      <td className="py-3 px-3 text-slate-300 font-mono">{item.porcentaje_cota}%</td>
                       <td className="py-3 px-3 text-slate-300 font-mono">{item.bateria_pct}%</td>
                       <td className="py-3 px-3 font-medium text-cyan-400">{item.estado}</td>
                       <td className="py-3 px-3 text-slate-400 text-xs font-mono">
