@@ -2,5 +2,10 @@
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
     "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.6.1",
+    "postcss": "^8.5.31",
+    "tailwindcss": "^4.3.3"
   }
 }
