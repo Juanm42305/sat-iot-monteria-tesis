@@ -1,120 +1,154 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { COTA_M, CRITICO_M, MAX_FILAS, PRECAUCION_M, PUNTOS_GRAFICA, SIN_DATOS_TRAS_MS } from './configuracion';
+import { estadoVigente, exportarCSV, fechaHoraColombia, fusionarPorId, horaColombia, tiempoTranscurrido } from './datos';
+
+const ETIQUETA_ESTADO = { CRITICA: 'CRÍTICA', PRECAUCION: 'PRECAUCIÓN', NORMAL: 'NORMAL', SIN_DATOS: 'SIN DATOS' };
+
+const TARJETA_ESTADO = {
+  CRITICA: 'border-red-500/50 bg-red-950/20',
+  PRECAUCION: 'border-amber-500/50 bg-amber-950/20',
+  NORMAL: 'border-slate-800',
+  SIN_DATOS: 'border-slate-600',
+};
+
+const INSIGNIA_ESTADO = {
+  CRITICA: 'bg-red-500 text-white animate-pulse',
+  PRECAUCION: 'bg-amber-500 text-slate-950',
+  NORMAL: 'bg-emerald-500 text-slate-950',
+  SIN_DATOS: 'bg-slate-600 text-white',
+};
+
+const FILA_ESTADO = {
+  CRITICA: 'bg-red-900/60 text-red-300 border border-red-700',
+  PRECAUCION: 'bg-amber-900/60 text-amber-300 border border-amber-700',
+  NORMAL: 'bg-emerald-900/60 text-emerald-300 border border-emerald-700',
+};
+
+const CONEXION = {
+  SUBSCRIBED: { texto: 'Tiempo real activo', clase: 'bg-emerald-500/20 text-emerald-400', punto: 'bg-emerald-400 animate-ping' },
+  CONECTANDO: { texto: 'Conectando...', clase: 'bg-amber-500/20 text-amber-400', punto: 'bg-amber-400' },
+  FALLO: { texto: 'Tiempo real sin conexión', clase: 'bg-red-500/20 text-red-400', punto: 'bg-red-400' },
+};
+
+const conexionVisible = (estado) => CONEXION[estado] ?? CONEXION.FALLO;
+
+function colorResultado(resultado) {
+  if (resultado === 'enviada' || resultado === 'registrada') return 'text-emerald-400';
+  if (resultado?.startsWith('ERROR')) return 'text-red-400';
+  return 'text-amber-400';
+}
+
+function colorBateria(bateria) {
+  if (bateria === null || bateria === undefined) return 'text-slate-400';
+  if (bateria < 20) return 'text-red-400';
+  if (bateria < 40) return 'text-amber-400';
+  return 'text-emerald-400';
+}
+
+const COLUMNAS_NOTIFICACIONES = [
+  ['Fecha y hora (Colombia)', (n) => fechaHoraColombia(n.created_at)],
+  ['Sector', (n) => n.sector],
+  ['Nivel (m)', (n) => n.nivel_m],
+  ['Estado', (n) => n.estado],
+  ['Canal', (n) => n.canal],
+  ['Resultado', (n) => n.resultado],
+  ['Mensaje', (n) => n.mensaje],
+];
+
+const COLUMNAS_LECTURAS = [
+  ['Fecha y hora (Colombia)', (l) => fechaHoraColombia(l.created_at)],
+  ['Sector', (l) => l.sector],
+  ['Nivel (m)', (l) => l.nivel_m],
+  ['Porcentaje de cota (%)', (l) => l.porcentaje_cota],
+  ['Batería (%)', (l) => l.bateria_pct],
+  ['Estado', (l) => l.estado],
+  ['Tendencia', (l) => l.tendencia],
+];
 
 export default function App() {
   const [notificaciones, setNotificaciones] = useState([]);
   const [lecturas, setLecturas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [errorCarga, setErrorCarga] = useState(null);
+  const [errorExportar, setErrorExportar] = useState(null);
+  const [exportando, setExportando] = useState(false);
+  const [conexion, setConexion] = useState('CONECTANDO');
+  const [sectorElegido, setSectorElegido] = useState(null);
+  const [ahora, setAhora] = useState(() => Date.now());
 
   useEffect(() => {
-    // 1. Cargar datos iniciales desde Supabase
     const fetchData = async () => {
-      setLoading(true);
-      const { data: notifData, error: notifError } = await supabase
-        .from('notificaciones')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      
-      if (!notifError && notifData) setNotificaciones(notifData);
-
-      const { data: lectData, error: lectError } = await supabase
-        .from('lecturas')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      
-      if (!lectError && lectData) setLecturas(lectData);
+      const [notif, lect] = await Promise.all([
+        supabase.from('notificaciones').select('*').order('created_at', { ascending: false }).limit(MAX_FILAS),
+        supabase.from('lecturas').select('*').order('created_at', { ascending: false }).limit(MAX_FILAS),
+      ]);
+      const error = notif.error || lect.error;
+      setErrorCarga(error ? error.message : null);
+      if (notif.data) setNotificaciones((prev) => fusionarPorId(notif.data, prev, MAX_FILAS));
+      if (lect.data) setLecturas((prev) => fusionarPorId(lect.data, prev, MAX_FILAS));
       setLoading(false);
     };
 
-    fetchData();
+    fetchData().catch((e) => {
+      setErrorCarga(e.message);
+      setLoading(false);
+    });
 
-    // 2. Suscripción en Tiempo Real (Realtime) para ambas tablas
-    const channel = supabase.channel('schema-db-changes')
-      .on(
-        'postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'notificaciones' }, 
-        (payload) => {
-          setNotificaciones((prev) => [payload.new, ...prev]);
-        }
-      )
-      .on(
-        'postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'lecturas' }, 
-        (payload) => {
-          setLecturas((prev) => [payload.new, ...prev]);
-        }
-      )
-      .subscribe();
+    // React monta dos veces en desarrollo: cada montaje usa su propio canal e ignora los eventos del anterior
+    let activo = true;
+    const channel = supabase.channel(`panel-${Date.now()}-${Math.random()}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notificaciones' }, (payload) => {
+        setNotificaciones((prev) => fusionarPorId([payload.new], prev, MAX_FILAS));
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lecturas' }, (payload) => {
+        setLecturas((prev) => fusionarPorId([payload.new], prev, MAX_FILAS));
+      })
+      .subscribe((estado) => {
+        if (!activo) return;
+        setConexion(estado);
+        // Al reconectar recupera lo que llegó mientras no había conexión
+        if (estado === 'SUBSCRIBED') fetchData().catch((e) => setErrorCarga(e.message));
+      });
+
+    const reloj = setInterval(() => setAhora(Date.now()), 5000);
 
     return () => {
+      activo = false;
+      clearInterval(reloj);
       supabase.removeChannel(channel);
     };
   }, []);
 
-  // Función para descargar la Bitácora de Notificaciones en CSV
-  const descargarNotificacionesCSV = () => {
-    const headers = ["Hora", "Estado", "Canal", "Resultado", "Mensaje"];
-    const rows = notificaciones.map(n => [
-      `"${n.hora || ''}"`, 
-      `"${n.estado || ''}"`, 
-      `"${n.canal || 'Telegram'}"`, 
-      `"${n.resultado || 'Éxito'}"`, 
-      `"${(n.mensaje || '').replace(/\n/g, ' ').replace(/"/g, '""')}"`
-    ]);
-    
-    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].map(e => e.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `bitacora_notificaciones_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const exportar = async (tabla, columnas, nombre) => {
+    setExportando(true);
+    setErrorExportar(null);
+    try {
+      await exportarCSV(supabase, tabla, columnas, nombre);
+    } catch (e) {
+      setErrorExportar(e.message);
+    } finally {
+      setExportando(false);
+    }
   };
 
-  // Función para descargar el Histórico de Lecturas en CSV
-  const descargarLecturasCSV = () => {
-    const headers = ["Sector", "Nivel (m)", "Porcentaje Cota (%)", "Batería (%)", "Estado", "Tendencia", "Fecha/Hora Local"];
-    const rows = lecturas.map(l => [
-      `"${l.sector || 'Margen Izquierda'}"`,
-      l.nivel_m,
-      l.porcentaje_cota || '',
-      l.bateria_pct || '',
-      `"${l.estado || ''}"`,
-      `"${l.tendencia || 'Estable'}"`,
-      `"${l.timestamp_local || l.created_at || ''}"`
-    ]);
-    
-    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].map(e => e.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `historico_lecturas_satiot_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const sectores = [...new Set(lecturas.map((l) => l.sector))];
+  const sector = sectorElegido ?? lecturas[0]?.sector ?? null;
+  const lecturasSector = lecturas.filter((l) => l.sector === sector);
+  const notificacionesSector = sector ? notificaciones.filter((n) => n.sector === sector) : notificaciones;
 
-  // Obtener la lectura más reciente para el panel de KPIs
-  const ultimaLectura = lecturas[0] || {
-    nivel_m: '--',
-    estado: 'NORMAL',
-    porcentaje_cota: '--',
-    bateria_pct: '--',
-    tendencia: 'Estable',
-    sector: 'Margen Izquierda'
-  };
+  const ultima = lecturasSector[0];
+  const estado = estadoVigente(ultima, ahora);
+  const conexionActual = conexionVisible(conexion);
 
-  // Preparar datos para la gráfica (orden cronológico ascendente para Recharts)
-  const chartData = [...lecturas].reverse().map(l => ({
-    hora: l.timestamp_local 
-      ? new Date(l.timestamp_local).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Bogota' })
-      : new Date(l.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Bogota' }),
+  // Solo se dibujan como vigentes los valores de una lectura reciente
+  const vigente = estado !== 'SIN_DATOS';
+  const porcentaje = ultima?.porcentaje_cota;
+
+  const chartData = lecturasSector.slice(0, PUNTOS_GRAFICA).reverse().map((l) => ({
+    hora: horaColombia(l.created_at),
     nivel: l.nivel_m,
-    cota: l.porcentaje_cota
   }));
 
   return (
@@ -122,25 +156,30 @@ export default function App() {
       {/* Cabecera del Dashboard */}
       <header className="max-w-6xl mx-auto mb-6 flex flex-col md:flex-row justify-between items-center border-b border-slate-800 pb-4 gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold text-cyan-400">SAT-IoT · Río Sinú</h1>
             <span className="bg-cyan-500/10 text-cyan-400 text-xs px-2.5 py-0.5 rounded-full border border-cyan-500/20 font-mono">
               Montería, Córdoba
+            </span>
+            <span className="bg-amber-500/10 text-amber-400 text-xs px-2.5 py-0.5 rounded-full border border-amber-500/20 font-medium">
+              Datos simulados
             </span>
           </div>
           <p className="text-sm text-slate-400 mt-1">Sistema de Alerta Temprana frente a Inundaciones</p>
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <button 
-            onClick={descargarNotificacionesCSV}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-md flex items-center gap-2 cursor-pointer"
+          <button
+            disabled={exportando}
+            onClick={() => exportar('notificaciones', COLUMNAS_NOTIFICACIONES, 'bitacora_notificaciones')}
+            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-md flex items-center gap-2 cursor-pointer"
           >
             📥 Exportar Bitácora CSV
           </button>
-          <button 
-            onClick={descargarLecturasCSV}
-            className="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-md flex items-center gap-2 cursor-pointer"
+          <button
+            disabled={exportando}
+            onClick={() => exportar('lecturas', COLUMNAS_LECTURAS, 'historico_lecturas_satiot')}
+            className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-md flex items-center gap-2 cursor-pointer"
           >
             📊 Exportar Lecturas CSV
           </button>
@@ -149,58 +188,78 @@ export default function App() {
 
       <main className="max-w-6xl mx-auto space-y-6">
 
+        {(errorCarga || errorExportar) && (
+          <div role="alert" className="bg-red-950/40 border border-red-500/50 text-red-300 text-sm rounded-lg p-3">
+            {errorCarga && <p><strong>No se pudieron cargar los datos:</strong> {errorCarga}</p>}
+            {errorExportar && <p><strong>No se pudo exportar:</strong> {errorExportar}</p>}
+          </div>
+        )}
+
+        {sectores.length > 1 && (
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            Sector:
+            <select
+              value={sector ?? ''}
+              onChange={(e) => setSectorElegido(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-white"
+            >
+              {sectores.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+        )}
+
         {/* TARJETAS DE MONITOREO EN TIEMPO REAL (KPIs) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          
+
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg relative overflow-hidden">
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Nivel Actual del Río</p>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Nivel del Río</p>
             <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-3xl font-extrabold text-white font-mono">{ultimaLectura.nivel_m}</span>
+              <span className={`text-3xl font-extrabold font-mono ${vigente ? 'text-white' : 'text-slate-500'}`}>{ultima?.nivel_m ?? '--'}</span>
               <span className="text-slate-400 text-sm">metros</span>
             </div>
-            <p className="text-xs text-slate-500 mt-2">Estación: {ultimaLectura.sector || 'Margen Izquierda'}</p>
+            <p className="text-xs text-slate-500 mt-2">
+              {ultima ? `Estación: ${ultima.sector} · hace ${tiempoTranscurrido(ultima.created_at, ahora)}` : 'Sin lecturas registradas'}
+            </p>
           </div>
 
-          <div className={`bg-slate-900 border p-5 rounded-xl shadow-lg ${
-            ultimaLectura.estado === 'CRITICA' ? 'border-red-500/50 bg-red-950/20' :
-            ultimaLectura.estado === 'PRECAUCION' ? 'border-amber-500/50 bg-amber-950/20' :
-            'border-slate-800'
-          }`}>
+          <div className={`bg-slate-900 border p-5 rounded-xl shadow-lg ${TARJETA_ESTADO[estado] ?? TARJETA_ESTADO.SIN_DATOS}`}>
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Estado de Alerta</p>
             <div className="mt-2">
-              <span className={`px-3 py-1 rounded-md text-sm font-bold inline-block ${
-                ultimaLectura.estado === 'CRITICA' ? 'bg-red-500 text-white animate-pulse' :
-                ultimaLectura.estado === 'PRECAUCION' ? 'bg-amber-500 text-slate-950' :
-                'bg-emerald-500 text-slate-950'
-              }`}>
-                {ultimaLectura.estado || 'NORMAL'}
+              <span className={`px-3 py-1 rounded-md text-sm font-bold inline-block ${INSIGNIA_ESTADO[estado] ?? INSIGNIA_ESTADO.SIN_DATOS}`}>
+                {ETIQUETA_ESTADO[estado] ?? estado}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-2">Tendencia: {ultimaLectura.tendencia || 'Estable'}</p>
+            <p className="text-xs text-slate-500 mt-2">
+              {vigente
+                ? `Tendencia: ${ultima.tendencia ?? 'sin dato'}`
+                : ultima
+                  ? `El sensor no reporta hace más de ${SIN_DATOS_TRAS_MS / 1000} s. Último estado: ${ETIQUETA_ESTADO[ultima.estado] ?? ultima.estado}`
+                  : 'Aún no se han recibido lecturas'}
+            </p>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg">
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Capacidad de Cauce</p>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Porcentaje de la Cota</p>
             <div className="flex items-baseline gap-1 mt-2">
-              <span className="text-3xl font-extrabold text-cyan-400 font-mono">{ultimaLectura.porcentaje_cota || 0}</span>
-              <span className="text-cyan-400 text-lg">%</span>
+              <span className={`text-3xl font-extrabold font-mono ${vigente ? 'text-cyan-400' : 'text-slate-500'}`}>{porcentaje ?? '--'}</span>
+              <span className={`text-lg ${vigente ? 'text-cyan-400' : 'text-slate-500'}`}>%</span>
             </div>
             <div className="w-full bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
-              <div 
-                className="bg-cyan-500 h-full transition-all duration-500" 
-                style={{ width: `${Math.min(ultimaLectura.porcentaje_cota || 0, 100)}%` }}
+              <div
+                className={`h-full transition-all duration-500 ${vigente ? 'bg-cyan-500' : 'bg-slate-600'}`}
+                style={{ width: `${Math.min(porcentaje ?? 0, 100)}%` }}
               ></div>
             </div>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg">
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Batería del Nodo ESP32</p>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Batería del Nodo</p>
             <div className="flex items-baseline gap-1 mt-2">
-              <span className="text-3xl font-extrabold text-emerald-400 font-mono">{ultimaLectura.bateria_pct || 100}</span>
-              <span className="text-emerald-400 text-lg">%</span>
+              <span className={`text-3xl font-extrabold font-mono ${vigente ? colorBateria(ultima?.bateria_pct) : 'text-slate-500'}`}>{ultima?.bateria_pct ?? '--'}</span>
+              <span className={`text-lg ${vigente ? colorBateria(ultima?.bateria_pct) : 'text-slate-500'}`}>%</span>
             </div>
-            <p className="text-xs text-emerald-500/80 mt-2 flex items-center gap-1">
-              <span>⚡</span> Alimentación Normal
+            <p className="text-xs text-slate-500 mt-2">
+              {ultima?.bateria_pct === null || ultima?.bateria_pct === undefined ? 'Sin dato de batería' : 'Reportada por el nodo'}
             </p>
           </div>
 
@@ -211,48 +270,62 @@ export default function App() {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
             <div>
               <h3 className="text-lg font-semibold text-slate-200">MONITOREO GRÁFICO - NIVEL DEL RÍO SINÚ</h3>
-              <p className="text-xs text-slate-400">Comportamiento en tiempo real con líneas de umbral de riesgo</p>
+              <p className="text-xs text-slate-400">Últimas {PUNTOS_GRAFICA} lecturas del sector, con los umbrales del sistema</p>
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="flex items-center gap-1 text-amber-400 font-medium">🟨 Precaución (3.5m)</span>
-              <span className="flex items-center gap-1 text-red-400 font-medium">🟥 Crítica (5.0m)</span>
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="flex items-center gap-1 text-amber-400 font-medium">🟨 Precaución ({PRECAUCION_M} m)</span>
+              <span className="flex items-center gap-1 text-red-400 font-medium">🟥 Crítica ({CRITICO_M} m)</span>
+              <span className="flex items-center gap-1 text-slate-300 font-medium">⬜ Cota ({COTA_M} m)</span>
             </div>
           </div>
-          
+
           <div className="h-72 w-full pt-4">
             {chartData.length === 0 ? (
               <div className="flex items-center justify-center h-full text-slate-500">
-                Esperando datos para graficar...
+                {loading ? 'Cargando lecturas...' : 'Sin lecturas para graficar'}
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="hora" stroke="#94a3b8" tick={{ fontSize: 12 }} />
-                  <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} domain={['auto', 'auto']} unit="m" />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.5rem', color: '#fff' }} 
+                  <XAxis dataKey="hora" stroke="#94a3b8" tick={{ fontSize: 12 }} minTickGap={40} />
+                  {/* El eje siempre incluye los umbrales, aunque el nivel esté lejos de ellos */}
+                  <YAxis
+                    stroke="#94a3b8"
+                    tick={{ fontSize: 12 }}
+                    unit="m"
+                    domain={[(min) => Math.floor(Math.min(min, PRECAUCION_M) - 0.5), (max) => Math.ceil(Math.max(max, COTA_M) + 0.2)]}
+                    allowDecimals={false}
                   />
-                  <ReferenceLine 
-                    y={3.5} 
-                    stroke="#f59e0b" 
-                    strokeDasharray="4 4" 
-                    label={{ value: 'Umbral Precaución (3.5m)', fill: '#f59e0b', fontSize: 11, position: 'insideTopRight' }} 
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.5rem', color: '#fff' }}
                   />
-                  <ReferenceLine 
-                    y={5.0} 
-                    stroke="#ef4444" 
-                    strokeDasharray="4 4" 
-                    label={{ value: 'Umbral Crítico (5.0m)', fill: '#ef4444', fontSize: 11, position: 'insideTopRight' }} 
+                  <ReferenceLine
+                    y={PRECAUCION_M}
+                    stroke="#f59e0b"
+                    strokeDasharray="4 4"
+                    label={{ value: `Umbral Precaución (${PRECAUCION_M} m)`, fill: '#f59e0b', fontSize: 11, position: 'insideBottomLeft' }}
                   />
-                  <Line 
-                    type="monotone" 
-                    dataKey="nivel" 
-                    name="Nivel (m)" 
-                    stroke="#22d3ee" 
-                    strokeWidth={3} 
-                    dot={{ fill: '#22d3ee', r: 4 }} 
-                    activeDot={{ r: 8 }} 
+                  <ReferenceLine
+                    y={CRITICO_M}
+                    stroke="#ef4444"
+                    strokeDasharray="4 4"
+                    label={{ value: `Umbral Crítico (${CRITICO_M} m)`, fill: '#ef4444', fontSize: 11, position: 'insideBottomLeft' }}
+                  />
+                  <ReferenceLine
+                    y={COTA_M}
+                    stroke="#cbd5e1"
+                    label={{ value: `Cota de desbordamiento (${COTA_M} m)`, fill: '#cbd5e1', fontSize: 11, position: 'insideBottomLeft' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="nivel"
+                    name="Nivel (m)"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 6 }}
+                    isAnimationActive={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -262,17 +335,17 @@ export default function App() {
 
         {/* 1. SECCIÓN: BITÁCORA DE NOTIFICACIONES */}
         <section className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
             <h3 className="text-lg font-semibold text-slate-200">BITÁCORA DE NOTIFICACIONES AUTOMÁTICAS</h3>
-            <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded-full font-medium flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Realtime Activo
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium flex items-center gap-1.5 ${conexionActual.clase}`}>
+              <span className={`w-2 h-2 rounded-full ${conexionActual.punto}`}></span> {conexionActual.texto}
             </span>
           </div>
-          <div className="max-h-[380px] overflow-y-auto custom-scrollbar overflow-x-auto">
+          <div className="max-h-[380px] overflow-y-auto overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-slate-900 z-10">
                 <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider">
-                  <th className="py-3 px-3">Hora Local</th>
+                  <th className="py-3 px-3">Hora Colombia</th>
                   <th className="py-3 px-3">Estado</th>
                   <th className="py-3 px-3">Canal</th>
                   <th className="py-3 px-3">Resultado</th>
@@ -280,32 +353,28 @@ export default function App() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-sm">
-                {loading && notificaciones.length === 0 ? (
+                {loading && notificacionesSector.length === 0 ? (
                   <tr>
                     <td colSpan="5" className="text-center py-6 text-slate-500">Cargando bitácora...</td>
                   </tr>
-                ) : notificaciones.length === 0 ? (
+                ) : notificacionesSector.length === 0 ? (
                   <tr>
                     <td colSpan="5" className="text-center py-6 text-slate-500">
                       No hay notificaciones registradas todavía.
                     </td>
                   </tr>
                 ) : (
-                  notificaciones.map((item, index) => (
-                    <tr key={item.id || index} className="hover:bg-slate-800/40 transition">
-                      <td className="py-3 px-3 text-slate-300 font-mono">{item.hora}</td>
+                  notificacionesSector.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-800/40 transition">
+                      <td className="py-3 px-3 text-slate-300 font-mono">{horaColombia(item.created_at)}</td>
                       <td className="py-3 px-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                          item.estado === 'CRITICA' ? 'bg-red-900/60 text-red-300 border border-red-700' :
-                          item.estado === 'PRECAUCION' ? 'bg-amber-900/60 text-amber-300 border border-amber-700' :
-                          'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
-                        }`}>
-                          {item.estado}
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${FILA_ESTADO[item.estado] ?? ''}`}>
+                          {ETIQUETA_ESTADO[item.estado] ?? item.estado}
                         </span>
                       </td>
-                      <td className="py-3 px-3 text-slate-300">{item.canal || 'Telegram'}</td>
-                      <td className="py-3 px-3 text-emerald-400 font-medium">{item.resultado || 'Éxito'}</td>
-                      <td className="py-3 px-3 text-slate-300 text-xs max-w-md truncate">{item.mensaje}</td>
+                      <td className="py-3 px-3 text-slate-300">{item.canal}</td>
+                      <td className={`py-3 px-3 font-medium ${colorResultado(item.resultado)}`}>{item.resultado}</td>
+                      <td className="py-3 px-3 text-slate-300 text-xs max-w-md truncate" title={item.mensaje}>{item.mensaje}</td>
                     </tr>
                   ))
                 )}
@@ -317,12 +386,9 @@ export default function App() {
         {/* 2. SECCIÓN: HISTÓRICO DE LECTURAS DEL SENSOR */}
         <section className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-slate-200">HISTÓRICO DE LECTURAS (NODO ESP32)</h3>
-            <span className="text-xs bg-cyan-500/20 text-cyan-400 px-2.5 py-1 rounded-full font-medium">
-              Sincronizado Supabase
-            </span>
+            <h3 className="text-lg font-semibold text-slate-200">HISTÓRICO DE LECTURAS</h3>
           </div>
-          <div className="max-h-[380px] overflow-y-auto custom-scrollbar overflow-x-auto">
+          <div className="max-h-[380px] overflow-y-auto overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-slate-900 z-10">
                 <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider">
@@ -335,25 +401,21 @@ export default function App() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-sm">
-                {lecturas.length === 0 ? (
+                {lecturasSector.length === 0 ? (
                   <tr>
                     <td colSpan="6" className="text-center py-6 text-slate-500">
-                      Esperando datos del sensor...
+                      {loading ? 'Cargando lecturas...' : 'Sin lecturas registradas.'}
                     </td>
                   </tr>
                 ) : (
-                  lecturas.map((item, index) => (
-                    <tr key={item.id || index} className="hover:bg-slate-800/40 transition">
-                      <td className="py-3 px-3 text-slate-300">{item.sector || 'Margen Izquierda'}</td>
+                  lecturasSector.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-800/40 transition">
+                      <td className="py-3 px-3 text-slate-300">{item.sector}</td>
                       <td className="py-3 px-3 font-bold text-amber-400 font-mono">{item.nivel_m} m</td>
-                      <td className="py-3 px-3 text-slate-300 font-mono">{item.porcentaje_cota}%</td>
-                      <td className="py-3 px-3 text-slate-300 font-mono">{item.bateria_pct}%</td>
-                      <td className="py-3 px-3 font-medium text-cyan-400">{item.estado}</td>
-                      <td className="py-3 px-3 text-slate-400 text-xs font-mono">
-                        {item.timestamp_local 
-                          ? new Date(item.timestamp_local).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) 
-                          : new Date(item.created_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}
-                      </td>
+                      <td className="py-3 px-3 text-slate-300 font-mono">{item.porcentaje_cota ?? '--'}%</td>
+                      <td className="py-3 px-3 text-slate-300 font-mono">{item.bateria_pct ?? '--'}%</td>
+                      <td className="py-3 px-3 font-medium text-cyan-400">{ETIQUETA_ESTADO[item.estado] ?? item.estado}</td>
+                      <td className="py-3 px-3 text-slate-400 text-xs font-mono">{fechaHoraColombia(item.created_at)}</td>
                     </tr>
                   ))
                 )}
