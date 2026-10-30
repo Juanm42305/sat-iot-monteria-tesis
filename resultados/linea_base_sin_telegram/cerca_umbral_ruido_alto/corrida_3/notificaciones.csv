@@ -1,0 +1,5 @@
+timestamp_local,sector,nivel_m,estado,canal,resultado,mensaje,latencia_ms
+2026-10-30T12:18:50.979,cerca_umbral_ruido_alto,4.64,PRECAUCION,DASHBOARD,registrada,[SIMULACIÓN] 🟡 PRECAUCIÓN | Sector cerca_umbral_ruido_alto · nivel río Sinú: 4.64 m (80 % de cota 5.8 m). | El nivel está subiendo. Permanezca atento.,
+2026-10-30T12:18:50.981,cerca_umbral_ruido_alto,4.64,PRECAUCION,TELEGRAM,no configurado,[SIMULACIÓN] 🟡 PRECAUCIÓN | Sector cerca_umbral_ruido_alto · nivel río Sinú: 4.64 m (80 % de cota 5.8 m). | El nivel está subiendo. Permanezca atento.,
+2026-10-30T12:18:52.615,cerca_umbral_ruido_alto,4.39,NORMAL,DASHBOARD,registrada,[SIMULACIÓN] 🟢 NORMALIZADO | Sector cerca_umbral_ruido_alto · nivel río Sinú: 4.39 m (76 % de cota 5.8 m). | Nivel retornó a la normalidad.,
+2026-10-30T12:18:52.616,cerca_umbral_ruido_alto,4.39,NORMAL,TELEGRAM,no configurado,[SIMULACIÓN] 🟢 NORMALIZADO | Sector cerca_umbral_ruido_alto · nivel río Sinú: 4.39 m (76 % de cota 5.8 m). | Nivel retornó a la normalidad.,

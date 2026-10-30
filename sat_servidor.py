@@ -46,7 +46,7 @@ CFG = dict(CONFIG_BASE)
 supabase_client = None
 
 CAB_HIST = ["timestamp_local", "sector", "nivel_m", "porcentaje_cota", "estado", "tendencia", "bateria_pct"]
-CAB_NOTIF = ["timestamp_local", "sector", "nivel_m", "estado", "canal", "resultado", "mensaje"]
+CAB_NOTIF = ["timestamp_local", "sector", "nivel_m", "estado", "canal", "resultado", "mensaje", "latencia_ms"]
 
 LOCK = threading.Lock()
 estados = {}
@@ -180,12 +180,13 @@ def calcular_tendencia(sector, nivel):
 
 
 def procesar_lectura(sector, nivel_m, bateria_pct=None):
+    t0 = time.perf_counter()
     with LOCK:
         anterior = estados.get(sector, "NORMAL")
         nuevo = evaluar_estado(anterior, nivel_m)
         estados[sector] = nuevo
         tendencia = calcular_tendencia(sector, nivel_m)
-        ts = datetime.now().isoformat(timespec="seconds")
+        ts = datetime.now().isoformat(timespec="milliseconds")
         pct = round(nivel_m / CFG["cota_desbordamiento_m"] * 100, 1)
         registro = {"t": ts, "sector": sector, "nivel_m": nivel_m, "porcentaje_cota": pct,
                     "estado": nuevo, "tendencia": tendencia, "bateria_pct": bateria_pct}
@@ -203,9 +204,9 @@ def procesar_lectura(sector, nivel_m, bateria_pct=None):
                            "" if bateria_pct is None else bateria_pct])
         guardar_lectura_supabase(registro)
 
-    log(f"[{ts[11:]}] {sector} | {nivel_m:.2f} m ({pct:.0f} % cota) | {nuevo} | {tendencia}")
+    log(f"[{ts[11:19]}] {sector} | {nivel_m:.2f} m ({pct:.0f} % cota) | {nuevo} | {tendencia}")
     if nuevo != anterior:
-        notificar_cambio(sector, nivel_m, anterior, nuevo)
+        notificar_cambio(sector, nivel_m, anterior, nuevo, t0)
     return registro
 
 
@@ -238,29 +239,31 @@ def mensaje_para(sector, nivel, anterior, nuevo):
     return f"{pref}🟢 NORMALIZADO\n{base}\nNivel retornó a la normalidad."
 
 
-def registrar_notificacion(sector, nivel, estado, canal, resultado, mensaje):
-    ts = datetime.now().isoformat(timespec="seconds")
+def registrar_notificacion(sector, nivel, estado, canal, resultado, mensaje, latencia_ms=""):
+    ts = datetime.now().isoformat(timespec="milliseconds")
     with LOCK:
         notificaciones.append({"t": ts, "sector": sector, "nivel_m": nivel, "estado": estado,
                                "canal": canal, "resultado": resultado, "mensaje": mensaje})
         escribir_fila_csv(ruta_datos("archivo_notificaciones"), CAB_NOTIF,
-                          [ts, sector, nivel, estado, canal, resultado, mensaje.replace("\n", " | ")])
+                          [ts, sector, nivel, estado, canal, resultado, mensaje.replace("\n", " | "), latencia_ms])
         guardar_notificacion_supabase(sector, nivel, estado, canal, resultado, mensaje)
 
 
-def despachar(sector, nivel, estado, mensaje):
+def despachar(sector, nivel, estado, mensaje, t0):
     registrar_notificacion(sector, nivel, estado, "DASHBOARD", "registrada", mensaje)
+    latencia_ms = ""
     if telegram_configurado():
         ok, detalle = telegram_enviar(mensaje)
         res_telegram = "enviada" if ok else f"ERROR: {detalle}"
+        latencia_ms = round((time.perf_counter() - t0) * 1000)
     else:
         res_telegram = "no configurado"
-    registrar_notificacion(sector, nivel, estado, "TELEGRAM", res_telegram, mensaje)
+    registrar_notificacion(sector, nivel, estado, "TELEGRAM", res_telegram, mensaje, latencia_ms)
 
 
-def notificar_cambio(sector, nivel, anterior, nuevo):
+def notificar_cambio(sector, nivel, anterior, nuevo, t0):
     mensaje = mensaje_para(sector, nivel, anterior, nuevo)
-    threading.Thread(target=despachar, args=(sector, nivel, nuevo, mensaje), daemon=True).start()
+    threading.Thread(target=despachar, args=(sector, nivel, nuevo, mensaje, t0), daemon=True).start()
 
 
 def validar_lectura(carga):
@@ -314,12 +317,17 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global CFG
-    CFG = cargar_config("config.json")
+    ap = argparse.ArgumentParser(description="Servidor del SAT-IoT Montería")
+    ap.add_argument("--config", default="config.json", help="archivo de configuración")
+    ap.add_argument("--puerto", type=int, default=8000)
+    args = ap.parse_args()
+
+    CFG = cargar_config(args.config)
     inicializar_supabase()
 
-    servidor = ThreadingHTTPServer(("0.0.0.0", 8000), Handler)
+    servidor = ThreadingHTTPServer(("0.0.0.0", args.puerto), Handler)
     log("============================================================")
-    log(" Servidor SAT-IoT conectado a Supabase en puerto 8000")
+    log(f" Servidor SAT-IoT en puerto {args.puerto}")
     log("============================================================")
     try:
         servidor.serve_forever()

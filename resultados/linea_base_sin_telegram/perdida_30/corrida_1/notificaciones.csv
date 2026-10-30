@@ -1,0 +1,9 @@
+timestamp_local,sector,nivel_m,estado,canal,resultado,mensaje,latencia_ms
+2026-10-30T12:19:27.073,perdida_30,4.78,PRECAUCION,DASHBOARD,registrada,[SIMULACIÓN] 🟡 PRECAUCIÓN | Sector perdida_30 · nivel río Sinú: 4.78 m (82 % de cota 5.8 m). | El nivel está subiendo. Permanezca atento.,
+2026-10-30T12:19:27.122,perdida_30,4.78,PRECAUCION,TELEGRAM,no configurado,[SIMULACIÓN] 🟡 PRECAUCIÓN | Sector perdida_30 · nivel río Sinú: 4.78 m (82 % de cota 5.8 m). | El nivel está subiendo. Permanezca atento.,
+2026-10-30T12:19:28.602,perdida_30,5.31,CRITICA,DASHBOARD,registrada,[SIMULACIÓN] 🔴 ALERTA CRÍTICA | Sector perdida_30 · nivel río Sinú: 5.31 m (92 % de cota 5.8 m). | ¡Peligro de desbordamiento! Prepárese para evacuar.,
+2026-10-30T12:19:28.608,perdida_30,5.31,CRITICA,TELEGRAM,no configurado,[SIMULACIÓN] 🔴 ALERTA CRÍTICA | Sector perdida_30 · nivel río Sinú: 5.31 m (92 % de cota 5.8 m). | ¡Peligro de desbordamiento! Prepárese para evacuar.,
+2026-10-30T12:19:35.847,perdida_30,4.94,PRECAUCION,DASHBOARD,registrada,[SIMULACIÓN] 🟠 DESCENSO | Sector perdida_30 · nivel río Sinú: 4.94 m (85 % de cota 5.8 m). | Nivel bajó de crítico a precaución.,
+2026-10-30T12:19:35.850,perdida_30,4.94,PRECAUCION,TELEGRAM,no configurado,[SIMULACIÓN] 🟠 DESCENSO | Sector perdida_30 · nivel río Sinú: 4.94 m (85 % de cota 5.8 m). | Nivel bajó de crítico a precaución.,
+2026-10-30T12:19:37.878,perdida_30,4.12,NORMAL,DASHBOARD,registrada,[SIMULACIÓN] 🟢 NORMALIZADO | Sector perdida_30 · nivel río Sinú: 4.12 m (71 % de cota 5.8 m). | Nivel retornó a la normalidad.,
+2026-10-30T12:19:37.879,perdida_30,4.12,NORMAL,TELEGRAM,no configurado,[SIMULACIÓN] 🟢 NORMALIZADO | Sector perdida_30 · nivel río Sinú: 4.12 m (71 % de cota 5.8 m). | Nivel retornó a la normalidad.,

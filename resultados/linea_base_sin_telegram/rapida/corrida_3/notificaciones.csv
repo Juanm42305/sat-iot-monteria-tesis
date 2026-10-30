@@ -1,0 +1,9 @@
+timestamp_local,sector,nivel_m,estado,canal,resultado,mensaje,latencia_ms
+2026-10-30T12:13:24.422,rapida,4.77,PRECAUCION,DASHBOARD,registrada,[SIMULACIÓN] 🟡 PRECAUCIÓN | Sector rapida · nivel río Sinú: 4.77 m (82 % de cota 5.8 m). | El nivel está subiendo. Permanezca atento.,
+2026-10-30T12:13:24.423,rapida,4.77,PRECAUCION,TELEGRAM,no configurado,[SIMULACIÓN] 🟡 PRECAUCIÓN | Sector rapida · nivel río Sinú: 4.77 m (82 % de cota 5.8 m). | El nivel está subiendo. Permanezca atento.,
+2026-10-30T12:13:25.964,rapida,5.34,CRITICA,DASHBOARD,registrada,[SIMULACIÓN] 🔴 ALERTA CRÍTICA | Sector rapida · nivel río Sinú: 5.34 m (92 % de cota 5.8 m). | ¡Peligro de desbordamiento! Prepárese para evacuar.,
+2026-10-30T12:13:25.967,rapida,5.34,CRITICA,TELEGRAM,no configurado,[SIMULACIÓN] 🔴 ALERTA CRÍTICA | Sector rapida · nivel río Sinú: 5.34 m (92 % de cota 5.8 m). | ¡Peligro de desbordamiento! Prepárese para evacuar.,
+2026-10-30T12:13:33.201,rapida,4.95,PRECAUCION,DASHBOARD,registrada,[SIMULACIÓN] 🟠 DESCENSO | Sector rapida · nivel río Sinú: 4.95 m (85 % de cota 5.8 m). | Nivel bajó de crítico a precaución.,
+2026-10-30T12:13:33.201,rapida,4.95,PRECAUCION,TELEGRAM,no configurado,[SIMULACIÓN] 🟠 DESCENSO | Sector rapida · nivel río Sinú: 4.95 m (85 % de cota 5.8 m). | Nivel bajó de crítico a precaución.,
+2026-10-30T12:13:34.756,rapida,4.35,NORMAL,DASHBOARD,registrada,[SIMULACIÓN] 🟢 NORMALIZADO | Sector rapida · nivel río Sinú: 4.35 m (75 % de cota 5.8 m). | Nivel retornó a la normalidad.,
+2026-10-30T12:13:34.757,rapida,4.35,NORMAL,TELEGRAM,no configurado,[SIMULACIÓN] 🟢 NORMALIZADO | Sector rapida · nivel río Sinú: 4.35 m (75 % de cota 5.8 m). | Nivel retornó a la normalidad.,

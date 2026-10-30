@@ -1,0 +1,3 @@
+timestamp_local,sector,nivel_m,estado,canal,resultado,mensaje,latencia_ms
+2026-10-30T12:15:38.429,oscilante,4.63,PRECAUCION,DASHBOARD,registrada,[SIMULACIÓN] 🟡 PRECAUCIÓN | Sector oscilante · nivel río Sinú: 4.63 m (80 % de cota 5.8 m). | El nivel está subiendo. Permanezca atento.,
+2026-10-30T12:15:38.431,oscilante,4.63,PRECAUCION,TELEGRAM,no configurado,[SIMULACIÓN] 🟡 PRECAUCIÓN | Sector oscilante · nivel río Sinú: 4.63 m (80 % de cota 5.8 m). | El nivel está subiendo. Permanezca atento.,

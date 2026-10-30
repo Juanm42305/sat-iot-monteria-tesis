@@ -4,9 +4,16 @@ config.json
 .env.*
 !.env.example
 
+# Datos de ejecución de la demo (la evidencia va en resultados/)
+/historico_lecturas.csv
+/notificaciones.csv
+
 # Dependencias y artefactos
 node_modules/
 __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Respaldo local de datos antiguos de Supabase
+respaldo_supabase/

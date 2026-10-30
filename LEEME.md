@@ -75,6 +75,11 @@ separador y coma decimal. Si abres directamente el CSV estándar y sale todo en 
 *Datos → Texto en columnas*. Si el servidor avisa que no puede escribir el CSV, es porque está abierto
 en Excel: ciérralo y no se pierde ninguna lectura (se guardan en memoria y se escriben después).
 
+## Métricas de evaluación
+
+Para medir falsas alarmas, alertas perdidas, retardo y entrega usa `py evaluar.py`.
+Las definiciones y el procedimiento están en `METRICAS.md`.
+
 ## La API del sensor (para el documento)
 
 | Método y ruta | Uso | Respuestas |

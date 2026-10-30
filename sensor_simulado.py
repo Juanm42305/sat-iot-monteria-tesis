@@ -1,5 +1,6 @@
 import argparse
 import csv
+import itertools
 import json
 import math
 import os
@@ -41,6 +42,17 @@ def perfil_estable(base=3.2):
         yield nivel
 
 
+def perfil_oscilante(centro=4.6, amplitud=0.05, pasos=20):
+    """Nivel que cruza una y otra vez el umbral de precaución: pone a prueba la histéresis."""
+    for i in itertools.count():
+        yield centro + amplitud * math.sin(2 * math.pi * i / pasos)
+
+
+def perfil_constante(nivel):
+    while True:
+        yield nivel
+
+
 def perfil_replay(archivo):
     columnas = ("nivel_m", "nivel", "valor", "level")
     with open(archivo, newline="", encoding="utf-8-sig") as f:
@@ -67,6 +79,10 @@ def generar(args):
         return perfil_coseno(3.2, 5.9, int(min(args.duracion, 45) / paso))
     if args.escenario == "estable":
         return perfil_estable()
+    if args.escenario == "oscilante":
+        return perfil_oscilante()
+    if args.escenario == "cerca_umbral":
+        return perfil_constante(4.45)
     if args.escenario == "replay":
         if not args.archivo:
             raise SystemExit("[ERROR] El escenario replay necesita --archivo datos.csv")
@@ -116,13 +132,17 @@ def main():
     ap.add_argument("--url", default="http://127.0.0.1:8000", help="dirección del servidor SAT")
     ap.add_argument("--clave", default=clave_por_defecto(), help="API key del servidor (por defecto, la de config.json)")
     ap.add_argument("--sector", default="sector1", help="nombre del sector que mide este nodo")
-    ap.add_argument("--escenario", choices=["creciente", "rapida", "estable", "replay"], default="creciente")
+    ap.add_argument("--escenario", choices=["creciente", "rapida", "estable", "oscilante", "cerca_umbral", "replay"], default="creciente")
     ap.add_argument("--duracion", type=float, default=120, help="duración de la creciente en segundos")
     ap.add_argument("--intervalo", type=float, default=2, help="segundos entre lecturas")
     ap.add_argument("--perdida", type=float, default=0.0, help="probabilidad (0 a 1) de perder un envío")
     ap.add_argument("--repetir", action="store_true", help="repite el escenario indefinidamente")
     ap.add_argument("--archivo", help="CSV para el escenario replay")
     ap.add_argument("--manual", action="store_true", help="tú escribes el nivel a mano")
+    ap.add_argument("--ruido", type=float, default=0.015, help="desviación del ruido del sensor en metros")
+    ap.add_argument("--semilla", type=int, help="semilla aleatoria, para repetir exactamente una prueba")
+    ap.add_argument("--max-lecturas", type=int, help="detiene el escenario tras este número de lecturas")
+    ap.add_argument("--verdad", help="CSV donde guardar el nivel real, antes de ruido y pérdidas")
     args = ap.parse_args()
     if not args.clave:
         raise SystemExit("[ERROR] Falta la API key: copia config.example.json como config.json o usa --clave.")
@@ -133,16 +153,29 @@ def main():
         return modo_manual(args)
     print(f"Escenario: {args.escenario} · una lectura cada {args.intervalo} s · Ctrl + C para detener\n")
 
+    if args.semilla is not None:
+        random.seed(args.semilla)
+    verdad = None
+    if args.verdad:
+        archivo_verdad = open(args.verdad, "w", newline="", encoding="utf-8")
+        verdad = csv.writer(archivo_verdad)
+        verdad.writerow(["t_unix", "sector", "nivel_real_m", "nivel_medido_m", "enviada"])
+
     bateria = 100.0
     try:
         while True:
-            for nivel in generar(args):
-                nivel = max(0.0, nivel + random.gauss(0, 0.015))  # ruido del sensor
+            for nivel_real in itertools.islice(generar(args), args.max_lecturas):
+                t = time.time()
+                nivel = max(0.0, nivel_real + random.gauss(0, args.ruido))  # ruido del sensor
                 bateria = max(0.0, bateria - 0.05)
+                enviada = False
                 if random.random() < args.perdida:
                     print(f"  nivel {nivel:.2f} m  [envío perdido: simula falla de conectividad]")
                 else:
-                    intentar_envio(args, nivel, bateria)
+                    enviada = intentar_envio(args, nivel, bateria)
+                if verdad:
+                    verdad.writerow([f"{t:.3f}", args.sector, round(nivel_real, 3), round(nivel, 2), int(enviada)])
+                    archivo_verdad.flush()
                 time.sleep(args.intervalo)
             if not args.repetir or args.escenario in ("estable", "replay"):
                 break
