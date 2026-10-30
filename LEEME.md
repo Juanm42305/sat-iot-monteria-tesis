@@ -51,7 +51,8 @@ Si `py` no funciona, prueba con `python`. Si el puerto 8000 está ocupado: `py s
 
 1. En Telegram busca **@BotFather** y escríbele `/newbot`. Elige un nombre y un usuario que termine en `bot`.
    Te entrega un **token** (algo como `123456:ABC-DEF...`).
-2. Abre `config.json` con el Bloc de notas y pega el token entre las comillas de `telegram_token`.
+2. Si no existe `config.json`, copia `config.example.json` con ese nombre (Git lo ignora para proteger las
+   credenciales). Ábrelo con el Bloc de notas y pega el token entre las comillas de `telegram_token`.
 3. En Telegram busca tu bot nuevo y escríbele `hola`.
 4. En la terminal: `py sat_servidor.py --descubrir-chat`. Muestra un número: tu `chat_id`.
 5. Pégalo en `telegram_chat_id` de `config.json` y guarda.

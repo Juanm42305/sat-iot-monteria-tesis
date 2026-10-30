@@ -1,0 +1,12 @@
+# Credenciales (usar config.example.json y frontend/.env.example como plantilla)
+config.json
+.env
+.env.*
+!.env.example
+
+# Dependencias y artefactos
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
