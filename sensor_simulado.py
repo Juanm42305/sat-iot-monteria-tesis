@@ -2,47 +2,29 @@ import argparse
 import csv
 import json
 import math
+import os
 import random
 import sys
 import time
 import requests
-import datetime
+
+
+def clave_por_defecto():
+    """Toma la API key de config.json, el mismo archivo que usa el servidor."""
+    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            return json.load(f).get("api_key", "")
+    except (OSError, json.JSONDecodeError):
+        return ""
 
 
 def enviar(url, clave, carga, timeout=5):
-    nivel = carga["nivel_m"]
-    cota = 5.8
-    pct = round((nivel / cota) * 100, 1)
-    estado = "CRITICA" if nivel >= 5.2 else ("PRECAUCION" if nivel >= 4.6 else "NORMAL")
-    
-    # Obtenemos la hora local actual en formato string para la base de datos
-    ahora_local = datetime.datetime.now().isoformat()
-
-    payload_supabase = {
-        "sector": carga["sector"],
-        "nivel_m": nivel,
-        "bateria_pct": carga.get("bateria_pct", 100.0),
-        "porcentaje_cota": pct,
-        "estado": estado,
-        "tendencia": "Estable",
-        "timestamp_local": ahora_local  # <--- Agregamos este campo obligatorio
-    }
-
-    endpoint = url.rstrip("/") + "/lecturas"
-    headers = {
-        "Content-Type": "application/json",
-        "apikey": clave,
-        "Authorization": f"Bearer {clave}",
-        "Prefer": "return=representation"
-    }
-
-    response = requests.post(endpoint, json=payload_supabase, headers=headers, timeout=timeout)
-    
-    if response.status_code in (200, 201):
-        resp_data = response.json()
-        return resp_data[0] if isinstance(resp_data, list) and len(resp_data) > 0 else {"estado": estado, "tendencia": "Estable"}
-    else:
-        raise Exception(f"HTTP {response.status_code}: {response.text}")
+    endpoint = url.rstrip("/") + "/api/lectura"
+    response = requests.post(endpoint, json=carga, headers={"X-API-Key": clave}, timeout=timeout)
+    if response.status_code == 200:
+        return response.json()
+    raise Exception(f"HTTP {response.status_code}: {response.text}")
 
 
 # ---------- PERFILES DE NIVEL (en metros) ----------
@@ -130,9 +112,9 @@ def main():
     except AttributeError:
         pass
 
-    ap = argparse.ArgumentParser(description="Sensor simulado del SAT-IoT Montería (Supabase Cloud)")
-    ap.add_argument("--url", default="https://njzmakhfdsrmxmmazlqh.supabase.co/rest/v1", help="dirección del servidor Supabase")
-    ap.add_argument("--clave", default="sb_publishable_YI_-kfHKZdpTLPS34VGxjQ_UdibAGi2", help="API key")
+    ap = argparse.ArgumentParser(description="Sensor simulado del SAT-IoT Montería")
+    ap.add_argument("--url", default="http://127.0.0.1:8000", help="dirección del servidor SAT")
+    ap.add_argument("--clave", default=clave_por_defecto(), help="API key del servidor (por defecto, la de config.json)")
     ap.add_argument("--sector", default="sector1", help="nombre del sector que mide este nodo")
     ap.add_argument("--escenario", choices=["creciente", "rapida", "estable", "replay"], default="creciente")
     ap.add_argument("--duracion", type=float, default=120, help="duración de la creciente en segundos")
@@ -142,8 +124,10 @@ def main():
     ap.add_argument("--archivo", help="CSV para el escenario replay")
     ap.add_argument("--manual", action="store_true", help="tú escribes el nivel a mano")
     args = ap.parse_args()
+    if not args.clave:
+        raise SystemExit("[ERROR] Falta la API key: copia config.example.json como config.json o usa --clave.")
 
-    print("=== SENSOR SIMULADO - SAT-IoT Montería (Cloud) ===")
+    print("=== SENSOR SIMULADO - SAT-IoT Montería ===")
     print(f"Servidor: {args.url} · sector: {args.sector}")
     if args.manual:
         return modo_manual(args)

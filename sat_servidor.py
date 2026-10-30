@@ -1,6 +1,3 @@
-import ssl
-# Ignorar certificados autofirmados o errores de cadena en entorno local de pruebas
-ssl._create_default_https_context = ssl._create_unverified_context
 import argparse
 import base64
 import csv
@@ -312,7 +309,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"ok": False, "error": str(e)})
             
             reg = procesar_lectura(sector, nivel, bateria)
-            return self._json(200, {"ok": True, "estado": reg["estado"], "nivel_m": reg["nivel_m"]})
+            return self._json(200, {"ok": True, "estado": reg["estado"], "nivel_m": reg["nivel_m"], "tendencia": reg["tendencia"]})
 
 
 def main():
