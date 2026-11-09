@@ -10,6 +10,8 @@ import sys
 import time
 import requests
 
+from validacion import ruta_en_proyecto, url_servidor
+
 
 def clave_por_defecto():
     """Toma la API key de config.json, el mismo archivo que usa el servidor."""
@@ -26,7 +28,7 @@ class ErrorServidor(Exception):
 
 
 def enviar(url, clave, carga, timeout=5):
-    endpoint = url.rstrip("/") + "/api/lectura"
+    endpoint = url_servidor(url).rstrip("/") + "/api/lectura"
     response = requests.post(endpoint, json=carga, headers={"X-API-Key": clave}, timeout=timeout)
     if response.status_code == 200:
         return response.json()
@@ -60,7 +62,7 @@ def perfil_constante(nivel):
 
 def perfil_replay(archivo):
     columnas = ("nivel_m", "nivel", "valor", "level")
-    with open(archivo, newline="", encoding="utf-8-sig") as f:
+    with open(ruta_en_proyecto(archivo), newline="", encoding="utf-8-sig") as f:
         lector = csv.DictReader(f)
         col = next((c for c in (lector.fieldnames or []) if c.strip().lower() in columnas), None)
         if col is None:
@@ -135,7 +137,8 @@ def simular(args, verdad, archivo_verdad):
             nivel = max(0.0, nivel_real + random.gauss(0, args.ruido))  # NOSONAR: ruido simulado del sensor
             bateria = max(0.0, bateria - 0.05)
             enviada = False
-            if random.random() < args.perdida:  # NOSONAR: pérdida simulada
+            # uniform(0, 1) da el mismo valor que random(): conserva la secuencia de cada semilla
+            if random.uniform(0, 1) < args.perdida:  # simulación de pérdida, no criptografía
                 print(f"  nivel {nivel:.2f} m  [envío perdido: simula falla de conectividad]")
             else:
                 enviada = intentar_envio(args, nivel, bateria)
@@ -170,6 +173,7 @@ def main():
     ap.add_argument("--max-lecturas", type=int, help="detiene el escenario tras este número de lecturas")
     ap.add_argument("--verdad", help="CSV donde guardar el nivel real, antes de ruido y pérdidas")
     args = ap.parse_args()
+    url_servidor(args.url)
     if not args.clave:
         raise SystemExit("[ERROR] Falta la API key: copia config.example.json como config.json o usa --clave.")
 
@@ -185,7 +189,7 @@ def main():
     with contextlib.ExitStack() as pila:
         verdad, archivo_verdad = None, None
         if args.verdad:
-            archivo_verdad = pila.enter_context(open(args.verdad, "w", newline="", encoding="utf-8"))
+            archivo_verdad = pila.enter_context(open(ruta_en_proyecto(args.verdad), "w", newline="", encoding="utf-8"))
             verdad = csv.writer(archivo_verdad)
             verdad.writerow(["t_unix", "sector", "nivel_real_m", "nivel_medido_m", "enviada"])
         try:

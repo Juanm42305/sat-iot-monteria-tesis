@@ -10,5 +10,6 @@
   "supabase_url": "https://TU-PROYECTO.supabase.co",
   "supabase_key": "",
   "archivo_historico": "historico_lecturas.csv",
-  "archivo_notificaciones": "notificaciones.csv"
+  "archivo_notificaciones": "notificaciones.csv",
+  "servidores_permitidos": []
 }

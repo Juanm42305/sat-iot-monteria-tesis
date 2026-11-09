@@ -5,12 +5,15 @@ import json
 import math
 import os
 import re
+import ssl
 import threading
 import time
 import urllib.request
 from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from validacion import puerto_valido, ruta_en_proyecto
 
 # Cliente de Supabase
 try:
@@ -77,6 +80,8 @@ def inicializar_supabase():
 
 def cargar_config(ruta):
     cfg = dict(CONFIG_BASE)
+    if ruta:
+        ruta = ruta_en_proyecto(ruta)
     if ruta and os.path.exists(ruta):
         try:
             with open(ruta, encoding="utf-8") as f:
@@ -330,6 +335,8 @@ def main():
     ap.add_argument("--puerto", type=int, default=8000)
     ap.add_argument("--host", default="127.0.0.1",
                     help="interfaz de red; usa 0.0.0.0 solo si un sensor de otro equipo debe conectarse")
+    ap.add_argument("--certificado", help="certificado TLS (.pem) para servir por HTTPS")
+    ap.add_argument("--llave", help="llave privada del certificado TLS (.pem)")
     args = ap.parse_args()
 
     CFG = cargar_config(args.config)
@@ -337,9 +344,17 @@ def main():
         raise SystemExit("[ERROR] Falta 'api_key' en la configuración: copia config.example.json como config.json.")
     inicializar_supabase()
 
-    servidor = ThreadingHTTPServer((args.host, args.puerto), Handler)
+    servidor = ThreadingHTTPServer((args.host, puerto_valido(args.puerto)), Handler)
+    esquema = "http"
+    if args.certificado:
+        contexto = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        contexto.minimum_version = ssl.TLSVersion.TLSv1_2
+        contexto.load_cert_chain(ruta_en_proyecto(args.certificado),
+                                 ruta_en_proyecto(args.llave) if args.llave else None)
+        servidor.socket = contexto.wrap_socket(servidor.socket, server_side=True)
+        esquema = "https"
     log("============================================================")
-    log(f" Servidor SAT-IoT escuchando en {args.host}:{args.puerto}")
+    log(f" Servidor SAT-IoT escuchando en {esquema}://{args.host}:{args.puerto}")
     log("============================================================")
     try:
         servidor.serve_forever()

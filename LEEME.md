@@ -48,6 +48,11 @@ Opciones útiles del sensor:
 Si `py` no funciona, prueba con `python`. Si el puerto 8000 está ocupado: `py sat_servidor.py --puerto 8080`.
 El servidor solo acepta conexiones de este computador. Si un sensor de otro equipo de la red debe enviarle
 lecturas, arráncalo con `py sat_servidor.py --host 0.0.0.0` y cambia la `api_key` de `config.json`.
+En el equipo del sensor, agrega la IP del servidor a `servidores_permitidos` de su `config.json`
+(por ejemplo `["192.168.1.20"]`): el sensor solo envía a `localhost` y a los servidores de esa lista.
+Para cifrar la conexión, el servidor acepta `--certificado cert.pem --llave llave.pem` y sirve por HTTPS.
+Los archivos que reciben los programas (`--config`, `--archivo`, `--verdad`, `--salida`) deben estar dentro de
+la carpeta del proyecto.
 
 ## Configurar Telegram (opcional, 5 minutos)
 

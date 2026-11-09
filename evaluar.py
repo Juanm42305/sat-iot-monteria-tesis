@@ -15,6 +15,7 @@ import time
 from datetime import datetime
 
 from sat_servidor import cargar_config, evaluar_estado
+from validacion import puerto_valido, ruta_en_proyecto
 
 CARPETA = os.path.dirname(os.path.abspath(__file__))
 RANGO = {"NORMAL": 0, "PRECAUCION": 1, "CRITICA": 2}
@@ -70,6 +71,7 @@ def porcentaje(parte, total):
 
 
 def leer_csv(ruta):
+    ruta = ruta_en_proyecto(ruta)
     if not os.path.exists(ruta):
         return []
     with open(ruta, newline="", encoding="utf-8") as f:
@@ -132,6 +134,8 @@ def resumir(corridas):
 
 
 def correr(escenario, carpeta, cfg, semilla, intervalo, puerto, telegram):
+    carpeta = ruta_en_proyecto(carpeta)
+    puerto = puerto_valido(puerto)
     os.makedirs(carpeta)
     clave = "clave-evaluacion"
     temporal = dict(cfg, api_key=clave, supabase_url="", supabase_key="",
@@ -158,7 +162,7 @@ def correr(escenario, carpeta, cfg, semilla, intervalo, puerto, telegram):
         subprocess.run(
             [sys.executable, os.path.join(CARPETA, "sensor_simulado.py"), *ESCENARIOS[escenario],
              "--url", f"http://127.0.0.1:{puerto}", "--clave", clave, "--sector", escenario,
-             "--intervalo", str(intervalo), "--semilla", str(semilla), "--verdad", os.path.join(carpeta, "verdad.csv")],
+             "--intervalo", str(float(intervalo)), "--semilla", str(int(semilla)), "--verdad", os.path.join(carpeta, "verdad.csv")],
             env=entorno, stdout=subprocess.DEVNULL, check=True, timeout=600)
         time.sleep(3)  # deja terminar las notificaciones en curso
     finally:
@@ -169,7 +173,7 @@ def correr(escenario, carpeta, cfg, semilla, intervalo, puerto, telegram):
 
 def escribir_excel(ruta, filas):
     """CSV que Excel en Colombia abre bien: separador ';' y coma decimal."""
-    with open(ruta, "w", newline="", encoding="utf-8-sig") as f:
+    with open(ruta_en_proyecto(ruta), "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
         w.writerow(filas[0].keys())
         for fila in filas:
@@ -196,6 +200,8 @@ def main():
     ap.add_argument("--telegram", action="store_true", help="envía mensajes reales a Telegram")
     ap.add_argument("--salida", default=os.path.join(CARPETA, "resultados", datetime.now().strftime("%Y%m%d_%H%M%S")))
     args = ap.parse_args()
+    args.salida = ruta_en_proyecto(args.salida)
+    args.puerto = puerto_valido(args.puerto)
 
     cfg = cargar_config(args.config)
     if args.telegram and not (cfg["telegram_token"] and cfg["telegram_chat_id"]):
@@ -213,7 +219,7 @@ def main():
         resumen.append({"escenario": escenario, **resumir(corridas)})
     resumen.append({"escenario": "TOTAL", **resumir(todas)})
 
-    with open(os.path.join(args.salida, "resumen.json"), "w", encoding="utf-8") as f:
+    with open(ruta_en_proyecto(os.path.join(args.salida, "resumen.json")), "w", encoding="utf-8") as f:
         json.dump({"parametros": {"intervalo_s": args.intervalo, "tolerancia_s": args.tolerancia,
                                   "semilla": args.semilla, "telegram": args.telegram,
                                   "umbral_precaucion_m": cfg["umbral_precaucion_m"],
