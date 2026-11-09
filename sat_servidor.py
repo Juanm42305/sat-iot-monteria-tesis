@@ -80,14 +80,15 @@ def inicializar_supabase():
 
 def cargar_config(ruta):
     cfg = dict(CONFIG_BASE)
-    if ruta:
-        ruta = ruta_en_proyecto(ruta)
-    if ruta and os.path.exists(ruta):
+    if not ruta:
+        return cfg
+    ruta_segura = ruta_en_proyecto(ruta)
+    if os.path.exists(ruta_segura):
         try:
-            with open(ruta, encoding="utf-8") as f:
+            with open(ruta_segura, encoding="utf-8") as f:
                 cfg.update(json.load(f))
         except (OSError, json.JSONDecodeError) as e:
-            raise SystemExit(f"[ERROR] No se pudo leer {ruta}: {e}")
+            raise SystemExit(f"[ERROR] No se pudo leer {ruta_segura}: {e}")
     return cfg
 
 
@@ -357,7 +358,8 @@ def main():
     log(f" Servidor SAT-IoT escuchando en {esquema}://{args.host}:{args.puerto}")
     log("============================================================")
     try:
-        servidor.serve_forever()
+        # HTTP solo en red local (127.0.0.1 por defecto); con --certificado sirve por HTTPS
+        servidor.serve_forever()  # NOSONAR
     except KeyboardInterrupt:
         log("\nServidor detenido.")
 
