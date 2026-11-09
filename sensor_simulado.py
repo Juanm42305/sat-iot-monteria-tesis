@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import csv
 import itertools
 import json
@@ -20,12 +21,16 @@ def clave_por_defecto():
         return ""
 
 
+class ErrorServidor(Exception):
+    """El servidor SAT respondió con un código distinto de 200."""
+
+
 def enviar(url, clave, carga, timeout=5):
     endpoint = url.rstrip("/") + "/api/lectura"
     response = requests.post(endpoint, json=carga, headers={"X-API-Key": clave}, timeout=timeout)
     if response.status_code == 200:
         return response.json()
-    raise Exception(f"HTTP {response.status_code}: {response.text}")
+    raise ErrorServidor(f"HTTP {response.status_code}: {response.text}")
 
 
 # ---------- PERFILES DE NIVEL (en metros) ----------
@@ -38,7 +43,7 @@ def perfil_coseno(base, pico, pasos):
 def perfil_estable(base=3.2):
     nivel = base
     while True:
-        nivel += random.gauss(0, 0.03) + (base - nivel) * 0.2  # vuelve hacia la base
+        nivel += random.gauss(0, 0.03) + (base - nivel) * 0.2  # NOSONAR: simulación, no criptografía
         yield nivel
 
 
@@ -97,14 +102,14 @@ def intentar_envio(args, nivel, bateria):
         r = enviar(args.url, args.clave, carga)
         print(f"  enviado {carga['nivel_m']:.2f} m  ->  {r.get('estado', 'OK')} ({r.get('tendencia', 'Estable')})")
         return True
-    except Exception as e:
+    except (requests.RequestException, ErrorServidor, ValueError) as e:
         print(f"  [ERROR DE ENVÍO]: {e}")
         return False
 
 
 def modo_manual(args):
     print("Modo manual: escribe el nivel del río en metros y presiona Enter.")
-    print(f"Referencia: precaución ≈ 4.6 m · crítica ≈ 5.2 m · cota de desbordamiento 5.8 m.  (q para salir)\n")
+    print("Referencia: precaución ≈ 4.6 m · crítica ≈ 5.2 m · cota de desbordamiento 5.8 m.  (q para salir)\n")
     bateria = 100.0
     while True:
         try:
@@ -120,6 +125,27 @@ def modo_manual(args):
             continue
         intentar_envio(args, nivel, bateria)
         bateria = max(0.0, bateria - 0.1)
+
+
+def simular(args, verdad, archivo_verdad):
+    bateria = 100.0
+    while True:
+        for nivel_real in itertools.islice(generar(args), args.max_lecturas):
+            t = time.time()
+            nivel = max(0.0, nivel_real + random.gauss(0, args.ruido))  # NOSONAR: ruido simulado del sensor
+            bateria = max(0.0, bateria - 0.05)
+            enviada = False
+            if random.random() < args.perdida:  # NOSONAR: pérdida simulada
+                print(f"  nivel {nivel:.2f} m  [envío perdido: simula falla de conectividad]")
+            else:
+                enviada = intentar_envio(args, nivel, bateria)
+            if verdad:
+                verdad.writerow([f"{t:.3f}", args.sector, round(nivel_real, 3), round(nivel, 2), int(enviada)])
+                archivo_verdad.flush()
+            time.sleep(args.intervalo)
+        if not args.repetir or args.escenario in ("estable", "replay"):
+            return
+        print("\n--- Reiniciando escenario ---\n")
 
 
 def main():
@@ -150,38 +176,22 @@ def main():
     print("=== SENSOR SIMULADO - SAT-IoT Montería ===")
     print(f"Servidor: {args.url} · sector: {args.sector}")
     if args.manual:
-        return modo_manual(args)
+        modo_manual(args)
+        return
     print(f"Escenario: {args.escenario} · una lectura cada {args.intervalo} s · Ctrl + C para detener\n")
 
     if args.semilla is not None:
-        random.seed(args.semilla)
-    verdad = None
-    if args.verdad:
-        archivo_verdad = open(args.verdad, "w", newline="", encoding="utf-8")
-        verdad = csv.writer(archivo_verdad)
-        verdad.writerow(["t_unix", "sector", "nivel_real_m", "nivel_medido_m", "enviada"])
-
-    bateria = 100.0
-    try:
-        while True:
-            for nivel_real in itertools.islice(generar(args), args.max_lecturas):
-                t = time.time()
-                nivel = max(0.0, nivel_real + random.gauss(0, args.ruido))  # ruido del sensor
-                bateria = max(0.0, bateria - 0.05)
-                enviada = False
-                if random.random() < args.perdida:
-                    print(f"  nivel {nivel:.2f} m  [envío perdido: simula falla de conectividad]")
-                else:
-                    enviada = intentar_envio(args, nivel, bateria)
-                if verdad:
-                    verdad.writerow([f"{t:.3f}", args.sector, round(nivel_real, 3), round(nivel, 2), int(enviada)])
-                    archivo_verdad.flush()
-                time.sleep(args.intervalo)
-            if not args.repetir or args.escenario in ("estable", "replay"):
-                break
-            print("\n--- Reiniciando escenario ---\n")
-    except KeyboardInterrupt:
-        pass
+        random.seed(args.semilla)  # NOSONAR: simulación reproducible, no criptografía
+    with contextlib.ExitStack() as pila:
+        verdad, archivo_verdad = None, None
+        if args.verdad:
+            archivo_verdad = pila.enter_context(open(args.verdad, "w", newline="", encoding="utf-8"))
+            verdad = csv.writer(archivo_verdad)
+            verdad.writerow(["t_unix", "sector", "nivel_real_m", "nivel_medido_m", "enviada"])
+        try:
+            simular(args, verdad, archivo_verdad)
+        except KeyboardInterrupt:
+            pass
     print("\n[OK] Sensor detenido.")
 
 

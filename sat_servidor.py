@@ -1,17 +1,12 @@
 import argparse
-import base64
 import csv
 import hmac
-import io
 import json
 import math
 import os
 import re
-import sys
 import threading
 import time
-import urllib.error
-import urllib.parse
 import urllib.request
 from collections import deque
 from datetime import datetime
@@ -19,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Cliente de Supabase
 try:
-    from supabase import create_client, Client
+    from supabase import create_client
     SUPABASE_INSTALADO = True
 except ImportError:
     SUPABASE_INSTALADO = False
@@ -32,7 +27,7 @@ CONFIG_BASE = {
     "umbral_precaucion_m": 4.6,
     "umbral_critico_m": 5.2,
     "histeresis_m": 0.15,
-    "api_key": "sat-monteria-demo",
+    "api_key": "",
     "prefijo_simulacion": True,
     "telegram_token": "",
     "telegram_chat_id": "",
@@ -58,6 +53,7 @@ _pendientes = {}
 _avisados = set()
 
 RE_SECTOR = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+MAX_CUERPO_BYTES = 4096
 
 
 def log(*args):
@@ -168,7 +164,7 @@ def evaluar_estado(actual, nivel, cfg=None):
 
 
 def calcular_tendencia(sector, nivel):
-    previos = [l["nivel_m"] for l in historial if l["sector"] == sector][-5:]
+    previos = [lectura["nivel_m"] for lectura in historial if lectura["sector"] == sector][-5:]
     if len(previos) < 3:
         return "estable"
     d = nivel - sum(previos) / len(previos)
@@ -193,7 +189,7 @@ def procesar_lectura(sector, nivel_m, bateria_pct=None):
         historial.append(registro)
         ultimo["datos"] = registro
         ultimo["recibido"] = time.time()
-        
+
         if nuevo == "CRITICA" and anterior != "CRITICA":
             contadores["criticas"] += 1
         if nuevo == "PRECAUCION" and anterior == "NORMAL":
@@ -273,46 +269,58 @@ def validar_lectura(carga):
     if not isinstance(sector, str) or not RE_SECTOR.match(sector):
         raise ValueError("'sector' inválido.")
     nivel = carga.get("nivel_m")
-    if not isinstance(nivel, (int, float)) or isinstance(nivel, bool):
-        raise ValueError("'nivel_m' debe ser un número.")
+    if not es_numero(nivel) or not 0 <= nivel <= 50:
+        raise ValueError("'nivel_m' debe ser un número entre 0 y 50.")
     bateria = carga.get("bateria_pct")
+    if bateria is not None and (not es_numero(bateria) or not 0 <= bateria <= 100):
+        raise ValueError("'bateria_pct' debe ser un número entre 0 y 100.")
     return sector, round(float(nivel), 3), bateria
 
 
+def es_numero(valor):
+    return isinstance(valor, (int, float)) and not isinstance(valor, bool) and math.isfinite(valor)
+
+
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args): pass
+    def log_message(self, *args):
+        """Silencia el registro por petición; procesar_lectura ya imprime cada lectura."""
 
     def _json(self, codigo, obj):
         cuerpo = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(codigo)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(cuerpo)
 
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.end_headers()
+    def do_GET(self):
+        self._json(404, {"ok": False, "error": "Ruta no encontrada."})
 
     def do_POST(self):
-        ruta = self.path.split("?")[0]
-        if ruta == "/api/lectura":
-            largo = int(self.headers.get("Content-Length", 0))
-            cuerpo = self.rfile.read(largo)
-            clave = self.headers.get("X-API-Key", "")
-            if not hmac.compare_digest(clave.encode("utf-8"), CFG["api_key"].encode("utf-8")):
-                return self._json(401, {"ok": False, "error": "API key inválida."})
-            try:
-                sector, nivel, bateria = validar_lectura(json.loads(cuerpo.decode("utf-8")))
-            except Exception as e:
-                return self._json(400, {"ok": False, "error": str(e)})
-            
-            reg = procesar_lectura(sector, nivel, bateria)
-            return self._json(200, {"ok": True, "estado": reg["estado"], "nivel_m": reg["nivel_m"], "tendencia": reg["tendencia"]})
+        if self.path.split("?")[0] != "/api/lectura":
+            self._json(404, {"ok": False, "error": "Ruta no encontrada."})
+            return
+        clave = self.headers.get("X-API-Key", "")
+        if not hmac.compare_digest(clave.encode("utf-8"), CFG["api_key"].encode("utf-8")):
+            self._json(401, {"ok": False, "error": "API key inválida."})
+            return
+        try:
+            largo = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            largo = -1
+        if largo < 0 or largo > MAX_CUERPO_BYTES:
+            self.close_connection = True
+            self._json(413, {"ok": False, "error": "Cuerpo vacío, inválido o muy grande."})
+            return
+        try:
+            sector, nivel, bateria = validar_lectura(json.loads(self.rfile.read(largo).decode("utf-8")))
+        except ValueError as e:  # incluye JSONDecodeError y UnicodeDecodeError
+            self._json(400, {"ok": False, "error": str(e)})
+            return
+
+        reg = procesar_lectura(sector, nivel, bateria)
+        self._json(200, {"ok": True, "estado": reg["estado"], "nivel_m": reg["nivel_m"], "tendencia": reg["tendencia"]})
 
 
 def main():
@@ -320,19 +328,24 @@ def main():
     ap = argparse.ArgumentParser(description="Servidor del SAT-IoT Montería")
     ap.add_argument("--config", default="config.json", help="archivo de configuración")
     ap.add_argument("--puerto", type=int, default=8000)
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="interfaz de red; usa 0.0.0.0 solo si un sensor de otro equipo debe conectarse")
     args = ap.parse_args()
 
     CFG = cargar_config(args.config)
+    if not CFG["api_key"]:
+        raise SystemExit("[ERROR] Falta 'api_key' en la configuración: copia config.example.json como config.json.")
     inicializar_supabase()
 
-    servidor = ThreadingHTTPServer(("0.0.0.0", args.puerto), Handler)
+    servidor = ThreadingHTTPServer((args.host, args.puerto), Handler)
     log("============================================================")
-    log(f" Servidor SAT-IoT en puerto {args.puerto}")
+    log(f" Servidor SAT-IoT escuchando en {args.host}:{args.puerto}")
     log("============================================================")
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:
         log("\nServidor detenido.")
+
 
 if __name__ == "__main__":
     main()

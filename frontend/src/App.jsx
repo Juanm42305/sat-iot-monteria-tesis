@@ -67,6 +67,60 @@ const COLUMNAS_LECTURAS = [
   ['Tendencia', (l) => l.tendencia],
 ];
 
+function textoEstado(estado, ultima) {
+  if (estado !== 'SIN_DATOS') return `Tendencia: ${ultima.tendencia ?? 'sin dato'}`;
+  if (!ultima) return 'Aún no se han recibido lecturas';
+  const anterior = ETIQUETA_ESTADO[ultima.estado] ?? ultima.estado;
+  return `El sensor no reporta hace más de ${SIN_DATOS_TRAS_MS / 1000} s. Último estado: ${anterior}`;
+}
+
+function FilaVacia({ columnas, children }) {
+  return (
+    <tr>
+      <td colSpan={columnas} className="text-center py-6 text-slate-500">{children}</td>
+    </tr>
+  );
+}
+
+function FilasNotificaciones({ notificaciones, loading }) {
+  if (notificaciones.length === 0) {
+    return (
+      <FilaVacia columnas={5}>
+        {loading ? 'Cargando bitácora...' : 'No hay notificaciones registradas todavía.'}
+      </FilaVacia>
+    );
+  }
+  return notificaciones.map((item) => (
+    <tr key={item.id} className="hover:bg-slate-800/40 transition">
+      <td className="py-3 px-3 text-slate-300 font-mono">{horaColombia(item.created_at)}</td>
+      <td className="py-3 px-3">
+        <span className={`px-2 py-0.5 rounded text-xs font-bold ${FILA_ESTADO[item.estado] ?? ''}`}>
+          {ETIQUETA_ESTADO[item.estado] ?? item.estado}
+        </span>
+      </td>
+      <td className="py-3 px-3 text-slate-300">{item.canal}</td>
+      <td className={`py-3 px-3 font-medium ${colorResultado(item.resultado)}`}>{item.resultado}</td>
+      <td className="py-3 px-3 text-slate-300 text-xs max-w-md truncate" title={item.mensaje}>{item.mensaje}</td>
+    </tr>
+  ));
+}
+
+function FilasLecturas({ lecturas, loading }) {
+  if (lecturas.length === 0) {
+    return <FilaVacia columnas={6}>{loading ? 'Cargando lecturas...' : 'Sin lecturas registradas.'}</FilaVacia>;
+  }
+  return lecturas.map((item) => (
+    <tr key={item.id} className="hover:bg-slate-800/40 transition">
+      <td className="py-3 px-3 text-slate-300">{item.sector}</td>
+      <td className="py-3 px-3 font-bold text-amber-400 font-mono">{item.nivel_m} m</td>
+      <td className="py-3 px-3 text-slate-300 font-mono">{item.porcentaje_cota ?? '--'}%</td>
+      <td className="py-3 px-3 text-slate-300 font-mono">{item.bateria_pct ?? '--'}%</td>
+      <td className="py-3 px-3 font-medium text-cyan-400">{ETIQUETA_ESTADO[item.estado] ?? item.estado}</td>
+      <td className="py-3 px-3 text-slate-400 text-xs font-mono">{fechaHoraColombia(item.created_at)}</td>
+    </tr>
+  ));
+}
+
 export default function App() {
   const [notificaciones, setNotificaciones] = useState([]);
   const [lecturas, setLecturas] = useState([]);
@@ -98,7 +152,7 @@ export default function App() {
 
     // React monta dos veces en desarrollo: cada montaje usa su propio canal e ignora los eventos del anterior
     let activo = true;
-    const channel = supabase.channel(`panel-${Date.now()}-${Math.random()}`)
+    const channel = supabase.channel(`panel-${crypto.randomUUID()}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notificaciones' }, (payload) => {
         setNotificaciones((prev) => fusionarPorId([payload.new], prev, MAX_FILAS));
       })
@@ -117,7 +171,7 @@ export default function App() {
     return () => {
       activo = false;
       clearInterval(reloj);
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, []);
 
@@ -145,6 +199,10 @@ export default function App() {
   // Solo se dibujan como vigentes los valores de una lectura reciente
   const vigente = estado !== 'SIN_DATOS';
   const porcentaje = ultima?.porcentaje_cota;
+  const bateria = ultima?.bateria_pct;
+  const sinBateria = bateria === null || bateria === undefined;
+  const claseBateria = vigente ? colorBateria(bateria) : 'text-slate-500';
+  const claseCota = vigente ? 'text-cyan-400' : 'text-slate-500';
 
   const chartData = lecturasSector.slice(0, PUNTOS_GRAFICA).reverse().map((l) => ({
     hora: horaColombia(l.created_at),
@@ -197,7 +255,7 @@ export default function App() {
 
         {sectores.length > 1 && (
           <label className="flex items-center gap-2 text-sm text-slate-300">
-            Sector:
+            <span>Sector:</span>
             <select
               value={sector ?? ''}
               onChange={(e) => setSectorElegido(e.target.value)}
@@ -230,19 +288,15 @@ export default function App() {
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-2">
-              {vigente
-                ? `Tendencia: ${ultima.tendencia ?? 'sin dato'}`
-                : ultima
-                  ? `El sensor no reporta hace más de ${SIN_DATOS_TRAS_MS / 1000} s. Último estado: ${ETIQUETA_ESTADO[ultima.estado] ?? ultima.estado}`
-                  : 'Aún no se han recibido lecturas'}
+              {textoEstado(estado, ultima)}
             </p>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg">
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Porcentaje de la Cota</p>
             <div className="flex items-baseline gap-1 mt-2">
-              <span className={`text-3xl font-extrabold font-mono ${vigente ? 'text-cyan-400' : 'text-slate-500'}`}>{porcentaje ?? '--'}</span>
-              <span className={`text-lg ${vigente ? 'text-cyan-400' : 'text-slate-500'}`}>%</span>
+              <span className={`text-3xl font-extrabold font-mono ${claseCota}`}>{porcentaje ?? '--'}</span>
+              <span className={`text-lg ${claseCota}`}>%</span>
             </div>
             <div className="w-full bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
               <div
@@ -255,11 +309,11 @@ export default function App() {
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg">
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Batería del Nodo</p>
             <div className="flex items-baseline gap-1 mt-2">
-              <span className={`text-3xl font-extrabold font-mono ${vigente ? colorBateria(ultima?.bateria_pct) : 'text-slate-500'}`}>{ultima?.bateria_pct ?? '--'}</span>
-              <span className={`text-lg ${vigente ? colorBateria(ultima?.bateria_pct) : 'text-slate-500'}`}>%</span>
+              <span className={`text-3xl font-extrabold font-mono ${claseBateria}`}>{bateria ?? '--'}</span>
+              <span className={`text-lg ${claseBateria}`}>%</span>
             </div>
             <p className="text-xs text-slate-500 mt-2">
-              {ultima?.bateria_pct === null || ultima?.bateria_pct === undefined ? 'Sin dato de batería' : 'Reportada por el nodo'}
+              {sinBateria ? 'Sin dato de batería' : 'Reportada por el nodo'}
             </p>
           </div>
 
@@ -353,31 +407,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-sm">
-                {loading && notificacionesSector.length === 0 ? (
-                  <tr>
-                    <td colSpan="5" className="text-center py-6 text-slate-500">Cargando bitácora...</td>
-                  </tr>
-                ) : notificacionesSector.length === 0 ? (
-                  <tr>
-                    <td colSpan="5" className="text-center py-6 text-slate-500">
-                      No hay notificaciones registradas todavía.
-                    </td>
-                  </tr>
-                ) : (
-                  notificacionesSector.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-800/40 transition">
-                      <td className="py-3 px-3 text-slate-300 font-mono">{horaColombia(item.created_at)}</td>
-                      <td className="py-3 px-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${FILA_ESTADO[item.estado] ?? ''}`}>
-                          {ETIQUETA_ESTADO[item.estado] ?? item.estado}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-slate-300">{item.canal}</td>
-                      <td className={`py-3 px-3 font-medium ${colorResultado(item.resultado)}`}>{item.resultado}</td>
-                      <td className="py-3 px-3 text-slate-300 text-xs max-w-md truncate" title={item.mensaje}>{item.mensaje}</td>
-                    </tr>
-                  ))
-                )}
+                <FilasNotificaciones notificaciones={notificacionesSector} loading={loading} />
               </tbody>
             </table>
           </div>
@@ -401,24 +431,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-sm">
-                {lecturasSector.length === 0 ? (
-                  <tr>
-                    <td colSpan="6" className="text-center py-6 text-slate-500">
-                      {loading ? 'Cargando lecturas...' : 'Sin lecturas registradas.'}
-                    </td>
-                  </tr>
-                ) : (
-                  lecturasSector.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-800/40 transition">
-                      <td className="py-3 px-3 text-slate-300">{item.sector}</td>
-                      <td className="py-3 px-3 font-bold text-amber-400 font-mono">{item.nivel_m} m</td>
-                      <td className="py-3 px-3 text-slate-300 font-mono">{item.porcentaje_cota ?? '--'}%</td>
-                      <td className="py-3 px-3 text-slate-300 font-mono">{item.bateria_pct ?? '--'}%</td>
-                      <td className="py-3 px-3 font-medium text-cyan-400">{ETIQUETA_ESTADO[item.estado] ?? item.estado}</td>
-                      <td className="py-3 px-3 text-slate-400 text-xs font-mono">{fechaHoraColombia(item.created_at)}</td>
-                    </tr>
-                  ))
-                )}
+                <FilasLecturas lecturas={lecturasSector} loading={loading} />
               </tbody>
             </table>
           </div>

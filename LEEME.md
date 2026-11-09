@@ -46,6 +46,8 @@ Opciones útiles del sensor:
 | `py sensor_simulado.py --escenario replay --archivo datos.csv` | reproduce datos reales (columna `nivel_m`, `nivel` o `valor`) |
 
 Si `py` no funciona, prueba con `python`. Si el puerto 8000 está ocupado: `py sat_servidor.py --puerto 8080`.
+El servidor solo acepta conexiones de este computador. Si un sensor de otro equipo de la red debe enviarle
+lecturas, arráncalo con `py sat_servidor.py --host 0.0.0.0` y cambia la `api_key` de `config.json`.
 
 ## Configurar Telegram (opcional, 5 minutos)
 

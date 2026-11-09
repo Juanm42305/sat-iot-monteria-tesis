@@ -105,10 +105,12 @@ def medir_corrida(carpeta, cfg, tolerancia_s):
 
 
 def resumir(corridas):
-    suma = lambda clave: sum(c[clave] for c in corridas)
+    def suma(clave):
+        return sum(c[clave] for c in corridas)
+
     correctas, falsas, perdidas = suma("correctas"), suma("falsas"), suma("perdidas")
     retardos = [r for c in corridas for r in c["retardos_s"]]
-    latencias = [l for c in corridas for l in c["latencias_ms"]]
+    latencias = [latencia for c in corridas for latencia in c["latencias_ms"]]
     return {
         "corridas": len(corridas),
         "lecturas_generadas": suma("lecturas_generadas"),
@@ -171,8 +173,15 @@ def escribir_excel(ruta, filas):
         w = csv.writer(f, delimiter=";")
         w.writerow(filas[0].keys())
         for fila in filas:
-            w.writerow(["" if v is None else str(v).replace(".", ",") if isinstance(v, float) else v
-                        for v in fila.values()])
+            w.writerow([celda_excel(v) for v in fila.values()])
+
+
+def celda_excel(valor):
+    if valor is None:
+        return ""
+    if isinstance(valor, float):
+        return str(valor).replace(".", ",")
+    return valor
 
 
 def main():
